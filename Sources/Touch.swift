@@ -34,6 +34,7 @@ enum TouchAction: Equatable {
 }
 
 struct TouchGesture {
+    private(set) var singleFingerScroll = false
     private enum State {
         case idle
         case one(Int, CGPoint, CGPoint, Bool)
@@ -42,6 +43,15 @@ struct TouchGesture {
     }
     private var state: State = .idle
     private var remainder = CGPoint.zero
+
+    mutating func setSingleFingerScroll(_ enabled: Bool) -> [TouchAction] {
+        let wasIdle: Bool
+        if case .idle = state { wasIdle = true } else { wasIdle = false }
+        let actions = cancel()
+        singleFingerScroll = enabled
+        if !wasIdle { state = .waitForRelease }
+        return actions
+    }
 
     mutating func cancel() -> [TouchAction] {
         defer { state = .idle; remainder = .zero }
@@ -69,23 +79,24 @@ struct TouchGesture {
             state = .waitForRelease
             return actions
         }
-        if contacts.count == 2 {
-            let center = CGPoint(x: (contacts[0].point.x + contacts[1].point.x) / 2,
-                                 y: (contacts[0].point.y + contacts[1].point.y) / 2)
-            let ids = Set(contacts.map(\.id))
-            if case let .scroll(previousIDs, previous, anchor) = state {
-                guard previousIDs == ids else {
-                    let actions = cancel()
-                    state = .waitForRelease
-                    return actions
-                }
-                let deltaX = center.x - previous.x + remainder.x
-                let deltaY = center.y - previous.y + remainder.y
-                let x = Int32(deltaX.rounded()), y = Int32(deltaY.rounded())
-                remainder = CGPoint(x: deltaX - CGFloat(x), y: deltaY - CGFloat(y))
-                state = .scroll(ids, center, anchor)
-                return x == 0 && y == 0 ? [] : [.scroll(anchor, y, x, 2)]
+        let center = contacts.count == 1 ? contacts[0].point : CGPoint(
+            x: (contacts[0].point.x + contacts[1].point.x) / 2,
+            y: (contacts[0].point.y + contacts[1].point.y) / 2)
+        let ids = Set(contacts.map(\.id))
+        if case let .scroll(previousIDs, previous, anchor) = state {
+            guard previousIDs == ids else {
+                let actions = cancel()
+                state = .waitForRelease
+                return actions
             }
+            let deltaX = center.x - previous.x + remainder.x
+            let deltaY = center.y - previous.y + remainder.y
+            let x = Int32(deltaX.rounded()), y = Int32(deltaY.rounded())
+            remainder = CGPoint(x: deltaX - CGFloat(x), y: deltaY - CGFloat(y))
+            state = .scroll(ids, center, anchor)
+            return x == 0 && y == 0 ? [] : [.scroll(anchor, y, x, 2)]
+        }
+        if contacts.count == 2 {
             let actions = cancel()
             state = .scroll(ids, center, center)
             return actions + [.move(center), .scroll(center, 0, 0, 1)]
@@ -102,16 +113,16 @@ struct TouchGesture {
                 return actions
             }
             let shouldDrag = dragging || hypot(contact.point.x - start.x, contact.point.y - start.y) >= 7
+            if singleFingerScroll && shouldDrag {
+                state = .scroll(ids, contact.point, start)
+                return [.move(start), .scroll(start, 0, 0, 1)]
+            }
             state = .one(id, start, contact.point, shouldDrag)
             if shouldDrag {
                 return (dragging ? [] : [.down(start)]) + [.drag(contact.point)]
             }
             return [.move(contact.point)]
-        case .scroll:
-            let actions = cancel()
-            state = .waitForRelease
-            return actions
-        case .waitForRelease: return []
+        case .scroll, .waitForRelease: return []
         }
     }
 }

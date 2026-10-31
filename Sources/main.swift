@@ -19,6 +19,7 @@ final class App: NSObject, NSApplicationDelegate {
     let statusLine = NSMenuItem(title: "停止中", action: nil, keyEquivalent: "")
     let counterLine = NSMenuItem(title: "入力 0 / 操作 0", action: nil, keyEquivalent: "")
     let toggleItem = NSMenuItem(title: "タッチを開始", action: #selector(toggle), keyEquivalent: "")
+    let singleFingerScrollItem = NSMenuItem(title: "1本指でスクロール", action: #selector(toggleSingleFingerScroll), keyEquivalent: "")
     var testWindow: NSWindow?
     var testCounts: [String: Int] = [:]
     var heartbeat: Timer?
@@ -26,6 +27,7 @@ final class App: NSObject, NSApplicationDelegate {
     var hasContacts = false
     var resumeAfterSleep = false
     var statusField: NSTextField?
+    var singleFingerScrollCheckbox: NSButton?
 
     var targetScreen: NSScreen? { NSScreen.screens.first { $0.localizedName == "KD1" } }
 
@@ -35,8 +37,10 @@ final class App: NSObject, NSApplicationDelegate {
         statusItem.button?.title = "K"
         statusItem.button?.font = NSFont.systemFont(ofSize: 17)
         statusItem.button?.setAccessibilityLabel("KD1のタッチ操作")
+        emit(gesture.setSingleFingerScroll(UserDefaults.standard.bool(forKey: "singleFingerScroll")))
+        singleFingerScrollItem.state = gesture.singleFingerScroll ? .on : .off
         let menu = NSMenu()
-        for item in [statusLine, counterLine, .separator(), toggleItem,
+        for item in [statusLine, counterLine, .separator(), toggleItem, singleFingerScrollItem,
                      NSMenuItem(title: "動作確認を開く", action: #selector(showTest), keyEquivalent: ""),
                      NSMenuItem(title: "アクセシビリティ設定を開く", action: #selector(openPermissions), keyEquivalent: ""),
                      .separator(), NSMenuItem(title: "終了", action: #selector(quit), keyEquivalent: "q")] {
@@ -66,6 +70,13 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     @objc func toggle() { running ? stop() : start() }
+
+    @objc func toggleSingleFingerScroll() {
+        emit(gesture.setSingleFingerScroll(!gesture.singleFingerScroll))
+        singleFingerScrollItem.state = gesture.singleFingerScroll ? .on : .off
+        singleFingerScrollCheckbox?.state = singleFingerScrollItem.state
+        UserDefaults.standard.set(gesture.singleFingerScroll, forKey: "singleFingerScroll")
+    }
 
     func start() {
         guard !running else { return }
@@ -242,7 +253,7 @@ final class App: NSObject, NSApplicationDelegate {
         window.isReleasedWhenClosed = false
         guard let content = window.contentView else { return }
         let w = content.bounds.width, h = content.bounds.height
-        let description = NSTextField(labelWithString: "四隅をタップし、中央の文章を2本指でスクロールしてください。")
+        let description = NSTextField(labelWithString: "四隅をタップし、中央の文章をスクロールしてください。")
         description.frame = NSRect(x: 170, y: h - 65, width: w - 340, height: 40)
         description.alignment = .center
         content.addSubview(description)
@@ -250,6 +261,11 @@ final class App: NSObject, NSApplicationDelegate {
         toggleButton.bezelStyle = .rounded
         toggleButton.frame = NSRect(x: w / 2 - 90, y: h - 110, width: 180, height: 36)
         content.addSubview(toggleButton)
+        let scrollCheckbox = NSButton(checkboxWithTitle: "1本指でスクロール", target: self, action: #selector(toggleSingleFingerScroll))
+        scrollCheckbox.state = singleFingerScrollItem.state
+        scrollCheckbox.frame = NSRect(x: w / 2 + 110, y: h - 110, width: 190, height: 36)
+        content.addSubview(scrollCheckbox)
+        singleFingerScrollCheckbox = scrollCheckbox
         let statusLabel = NSTextField(labelWithString: status)
         statusLabel.frame = NSRect(x: 170, y: 25, width: w - 340, height: 28)
         statusLabel.alignment = .center
@@ -270,7 +286,7 @@ final class App: NSObject, NSApplicationDelegate {
         text.isEditable = false
         text.font = .systemFont(ofSize: 20)
         text.textContainerInset = NSSize(width: 20, height: 20)
-        text.string = (1...80).map { "\($0) 行目 — 2本指で上下にスクロールできます。" }.joined(separator: "\n\n")
+        text.string = (1...80).map { "\($0) 行目 — スクロールモードは1本指、通常は2本指でスクロールできます。" }.joined(separator: "\n\n")
         scroll.documentView = text
         content.addSubview(scroll)
         testWindow = window
