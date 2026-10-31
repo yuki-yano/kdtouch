@@ -32,8 +32,8 @@ final class App: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "k.circle", accessibilityDescription: "KDTouch")
-        statusItem.button?.image?.isTemplate = true
+        statusItem.button?.title = "K"
+        statusItem.button?.font = NSFont.systemFont(ofSize: 17)
         statusItem.button?.setAccessibilityLabel("KD1のタッチ操作")
         let menu = NSMenu()
         for item in [statusLine, counterLine, .separator(), toggleItem,
