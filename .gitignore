@@ -1,0 +1,6 @@
+/build/
+/.direnv/
+/result
+/result-*
+.DS_Store
+!/.envrc
