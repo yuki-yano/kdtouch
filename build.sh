@@ -6,9 +6,9 @@ trap 'rm -rf "$build_dir"' EXIT
 : "${SDKROOT:?Enter the development environment with nix develop}"
 swift_flags=(-sdk "$SDKROOT" -target arm64-apple-macosx26.0 -no-toolchain-stdlib-rpath)
 mkdir -p "$build_dir/KDTouch.app/Contents/MacOS" "$build_dir/KDTouch.app/Contents/Resources" build
-swiftc "${swift_flags[@]}" Sources/Touch.swift Tests/main.swift -o "$build_dir/selfcheck"
+swiftc "${swift_flags[@]}" -framework CoreDisplay Sources/Touch.swift Sources/Brightness.swift Tests/main.swift -o "$build_dir/selfcheck"
 "$build_dir/selfcheck" Tests/captured-reports.txt
-swiftc "${swift_flags[@]}" -O Sources/Touch.swift Sources/main.swift -o "$build_dir/KDTouch.app/Contents/MacOS/KDTouch"
+swiftc "${swift_flags[@]}" -framework CoreDisplay -O Sources/Touch.swift Sources/Brightness.swift Sources/main.swift -o "$build_dir/KDTouch.app/Contents/MacOS/KDTouch"
 cp Resources/SW4101C.bin "$build_dir/KDTouch.app/Contents/Resources/"
 cp Info.plist "$build_dir/KDTouch.app/Contents/"
 /usr/bin/codesign --force --sign "${KDTOUCH_SIGN_IDENTITY:--}" --timestamp=none "$build_dir/KDTouch.app"

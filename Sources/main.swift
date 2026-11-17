@@ -2,7 +2,7 @@ import AppKit
 import ApplicationServices
 import IOKit.hid
 
-final class App: NSObject, NSApplicationDelegate {
+final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
     let reportBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 64)
     var device: IOHIDDevice?
@@ -28,8 +28,19 @@ final class App: NSObject, NSApplicationDelegate {
     var resumeAfterSleep = false
     var statusField: NSTextField?
     var singleFingerScrollCheckbox: NSButton?
+    let brightness = BrightnessController()
+    let brightnessLabel = NSTextField(labelWithString: "輝度 未接続")
+    let brightnessMessage = NSTextField(labelWithString: "")
+    let brightnessSlider = NSSlider(value: 0, minValue: 0, maxValue: 100, target: nil, action: nil)
+    var isSleeping = false
 
     var targetScreen: NSScreen? { NSScreen.screens.first { $0.localizedName == "KD1" } }
+    var brightnessDisplayID: CGDirectDisplayID? {
+        let screens = NSScreen.screens.filter { $0.localizedName == "KD1" }
+        guard screens.count == 1,
+              let number = screens[0].deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
+        return number.uint32Value
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -40,7 +51,21 @@ final class App: NSObject, NSApplicationDelegate {
         emit(gesture.setSingleFingerScroll(UserDefaults.standard.bool(forKey: "singleFingerScroll")))
         singleFingerScrollItem.state = gesture.singleFingerScroll ? .on : .off
         let menu = NSMenu()
+        menu.delegate = self
+        let brightnessItem = NSMenuItem()
+        let brightnessView = NSView(frame: NSRect(x: 0, y: 0, width: 290, height: 88))
+        brightnessLabel.frame = NSRect(x: 16, y: 60, width: 258, height: 20)
+        brightnessSlider.frame = NSRect(x: 16, y: 32, width: 258, height: 24)
+        brightnessSlider.target = self
+        brightnessSlider.action = #selector(changeBrightness(_:))
+        brightnessSlider.isContinuous = true
+        brightnessSlider.setAccessibilityLabel("KD1の輝度")
+        brightnessMessage.frame = NSRect(x: 16, y: 8, width: 258, height: 18)
+        brightnessMessage.font = .systemFont(ofSize: 11)
+        for view in [brightnessLabel, brightnessSlider, brightnessMessage] { brightnessView.addSubview(view) }
+        brightnessItem.view = brightnessView
         for item in [statusLine, counterLine, .separator(), toggleItem, singleFingerScrollItem,
+                     .separator(), brightnessItem, .separator(),
                      NSMenuItem(title: "動作確認を開く", action: #selector(showTest), keyEquivalent: ""),
                      NSMenuItem(title: "アクセシビリティ設定を開く", action: #selector(openPermissions), keyEquivalent: ""),
                      .separator(), NSMenuItem(title: "終了", action: #selector(quit), keyEquivalent: "q")] {
@@ -48,6 +73,9 @@ final class App: NSObject, NSApplicationDelegate {
             menu.addItem(item)
         }
         statusItem.menu = menu
+        brightness.onChange = { [weak self] state in self?.renderBrightness(state) }
+        renderBrightness(brightness.state)
+        brightness.connect(displayID: brightnessDisplayID)
         NotificationCenter.default.addObserver(self, selector: #selector(displayChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(sleeping),
@@ -70,6 +98,37 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     @objc func toggle() { running ? stop() : start() }
+
+    func menuWillOpen(_ menu: NSMenu) { brightness.refresh() }
+
+    @objc func changeBrightness(_ sender: NSSlider) {
+        let percent = Int(sender.doubleValue.rounded())
+        sender.integerValue = percent
+        brightness.set(percent: percent)
+    }
+
+    func renderBrightness(_ state: BrightnessState) {
+        brightnessLabel.stringValue = state.displayedPercent.map { "輝度 \($0)%" } ?? "輝度"
+        brightnessSlider.integerValue = state.displayedPercent ?? 0
+        brightnessMessage.stringValue = ""
+        switch state {
+        case .disconnected:
+            brightnessSlider.isEnabled = false
+            brightnessLabel.stringValue = "輝度 未接続"
+            brightnessMessage.stringValue = "KD1を1台接続してください"
+        case .busy:
+            brightnessSlider.isEnabled = false
+            brightnessMessage.stringValue = "処理中…"
+        case .adjusting:
+            brightnessSlider.isEnabled = true
+            brightnessMessage.stringValue = "反映中…"
+        case .ready: brightnessSlider.isEnabled = true
+        case let .failed(message, _):
+            brightnessSlider.isEnabled = false
+            brightnessMessage.stringValue = message
+        }
+        brightnessMessage.toolTip = brightnessMessage.stringValue
+    }
 
     @objc func toggleSingleFingerScroll() {
         emit(gesture.setSingleFingerScroll(!gesture.singleFingerScroll))
@@ -224,6 +283,7 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     @objc func displayChanged() {
+        if !isSleeping { brightness.connect(displayID: brightnessDisplayID) }
         emit(gesture.cancel())
         hasContacts = false
         if !updateBounds() {
@@ -233,8 +293,17 @@ final class App: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc func sleeping() { resumeAfterSleep = running; if running { stop() } }
-    @objc func waking() { if resumeAfterSleep { resumeAfterSleep = false; start() } }
+    @objc func sleeping() {
+        isSleeping = true
+        brightness.connect(displayID: nil)
+        resumeAfterSleep = running
+        if running { stop() }
+    }
+    @objc func waking() {
+        isSleeping = false
+        brightness.connect(displayID: brightnessDisplayID)
+        if resumeAfterSleep { resumeAfterSleep = false; start() }
+    }
     @objc func openPermissions() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
